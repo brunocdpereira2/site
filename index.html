@@ -1,14 +1,212 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta name="description" content="Organize as tarefas da sua família" />
-    <title>FamíliaTarefas</title>
-  </head>
-  <body>
-    <noscript>Você precisa habilitar JavaScript para rodar este app.</noscript>
-    <div id="root"></div>
-  </body>
-</html>
+from flask import Flask, render_template, request, jsonify
+from datetime import datetime, timedelta
+import json
+import os
+
+app = Flask(__name__)
+
+# Arquivo para persistência de dados
+DATA_FILE = 'family_data.json'
+
+def load_data():
+    """Carrega dados do arquivo JSON"""
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {
+        'members': [],
+        'tasks': [],
+        'activity_log': []
+    }
+
+def save_data(data):
+    """Salva dados no arquivo JSON"""
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+@app.route('/')
+def index():
+    """Página principal"""
+    return render_template('index.html')
+
+@app.route('/api/data', methods=['GET'])
+def get_data():
+    """Retorna todos os dados"""
+    return jsonify(load_data())
+
+@app.route('/api/members', methods=['GET', 'POST'])
+def members():
+    """Gerencia membros da família"""
+    data = load_data()
+    
+    if request.method == 'POST':
+        member_data = request.json
+        member = {
+            'id': str(int(datetime.now().timestamp() * 1000)),
+            'name': member_data['name'],
+            'color': member_data['color'],
+            'avatar': member_data['avatar'],
+            'points': 0
+        }
+        data['members'].append(member)
+        save_data(data)
+        return jsonify(member), 201
+    
+    return jsonify(data['members'])
+
+@app.route('/api/members/<member_id>', methods=['PUT', 'DELETE'])
+def member_detail(member_id):
+    """Atualiza ou deleta um membro"""
+    data = load_data()
+    
+    if request.method == 'PUT':
+        member_data = request.json
+        for i, member in enumerate(data['members']):
+            if member['id'] == member_id:
+                data['members'][i].update({
+                    'name': member_data['name'],
+                    'color': member_data['color'],
+                    'avatar': member_data['avatar']
+                })
+                save_data(data)
+                return jsonify(data['members'][i])
+        return jsonify({'error': 'Membro não encontrado'}), 404
+    
+    if request.method == 'DELETE':
+        data['members'] = [m for m in data['members'] if m['id'] != member_id]
+        data['tasks'] = [t for t in data['tasks'] if t['memberId'] != member_id]
+        save_data(data)
+        return '', 204
+
+@app.route('/api/tasks', methods=['GET', 'POST'])
+def tasks():
+    """Gerencia tarefas"""
+    data = load_data()
+    
+    if request.method == 'POST':
+        task_data = request.json
+        task = {
+            'id': str(int(datetime.now().timestamp() * 1000)),
+            'title': task_data['title'],
+            'memberId': task_data['memberId'],
+            'days': task_data['days'],
+            'frequency': task_data.get('frequency', 'weekly'),
+            'points': task_data['points'],
+            'completed': {}
+        }
+        data['tasks'].append(task)
+        save_data(data)
+        return jsonify(task), 201
+    
+    return jsonify(data['tasks'])
+
+@app.route('/api/tasks/<task_id>', methods=['PUT', 'DELETE'])
+def task_detail(task_id):
+    """Atualiza ou deleta uma tarefa"""
+    data = load_data()
+    
+    if request.method == 'PUT':
+        task_data = request.json
+        for i, task in enumerate(data['tasks']):
+            if task['id'] == task_id:
+                data['tasks'][i].update({
+                    'title': task_data['title'],
+                    'memberId': task_data['memberId'],
+                    'days': task_data['days'],
+                    'points': task_data['points']
+                })
+                save_data(data)
+                return jsonify(data['tasks'][i])
+        return jsonify({'error': 'Tarefa não encontrada'}), 404
+    
+    if request.method == 'DELETE':
+        data['tasks'] = [t for t in data['tasks'] if t['id'] != task_id]
+        save_data(data)
+        return '', 204
+
+@app.route('/api/tasks/<task_id>/toggle', methods=['POST'])
+def toggle_task(task_id):
+    """Marca/desmarca conclusão de tarefa"""
+    data = load_data()
+    request_data = request.json
+    day = request_data['day']
+    today = datetime.now().strftime('%Y-%m-%d')
+    key = f"{day}-{today}"
+    
+    for task in data['tasks']:
+        if task['id'] == task_id:
+            # Encontra o membro
+            member = next((m for m in data['members'] if m['id'] == task['memberId']), None)
+            if not member:
+                return jsonify({'error': 'Membro não encontrado'}), 404
+            
+            # Toggle da conclusão
+            if key in task['completed']:
+                del task['completed'][key]
+                member['points'] -= task['points']
+                activity_type = 'uncompleted'
+                points = -task['points']
+            else:
+                task['completed'][key] = True
+                member['points'] += task['points']
+                activity_type = 'completed'
+                points = task['points']
+            
+            # Adiciona ao log de atividades
+            activity = {
+                'id': str(int(datetime.now().timestamp() * 1000)),
+                'type': activity_type,
+                'memberName': member['name'],
+                'taskTitle': task['title'],
+                'points': points,
+                'timestamp': datetime.now().isoformat()
+            }
+            data['activity_log'].insert(0, activity)
+            data['activity_log'] = data['activity_log'][:50]  # Mantém últimas 50
+            
+            save_data(data)
+            return jsonify({
+                'task': task,
+                'member': member,
+                'activity': activity
+            })
+    
+    return jsonify({'error': 'Tarefa não encontrada'}), 404
+
+@app.route('/api/dashboard', methods=['GET'])
+def dashboard():
+    """Retorna dados do dashboard"""
+    data = load_data()
+    today = datetime.now()
+    
+    # Últimos 7 dias
+    last_7_days = []
+    for i in range(6, -1, -1):
+        date = today - timedelta(days=i)
+        date_str = date.strftime('%Y-%m-%d')
+        count = sum(1 for a in data['activity_log'] 
+                   if datetime.fromisoformat(a['timestamp']).strftime('%Y-%m-%d') == date_str 
+                   and a['type'] == 'completed')
+        last_7_days.append({
+            'date': date_str,
+            'count': count,
+            'dayName': ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'][date.weekday()]
+        })
+    
+    # Estatísticas
+    total_tasks_completed = sum(1 for a in data['activity_log'] if a['type'] == 'completed')
+    total_points = sum(m['points'] for m in data['members'])
+    today_str = today.strftime('%Y-%m-%d')
+    today_activities = [a for a in data['activity_log'] 
+                       if datetime.fromisoformat(a['timestamp']).strftime('%Y-%m-%d') == today_str]
+    
+    return jsonify({
+        'last_7_days': last_7_days,
+        'total_tasks_completed': total_tasks_completed,
+        'total_points': total_points,
+        'today_activities': len(today_activities),
+        'activity_log': data['activity_log']
+    })
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)
