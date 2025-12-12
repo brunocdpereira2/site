@@ -1,0 +1,770 @@
+import React, { useState, useEffect } from 'react';
+import { Plus, Check, X, Edit2, Trash2, Users, Home, Calendar, Award, Linkedin, BarChart3, TrendingUp } from 'lucide-react';
+
+const FamiliaTarefasApp = () => {
+  const [members, setMembers] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [activityLog, setActivityLog] = useState([]);
+  const [currentView, setCurrentView] = useState('home');
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [editingMember, setEditingMember] = useState(null);
+  const [editingTask, setEditingTask] = useState(null);
+  
+  const [newMember, setNewMember] = useState({ name: '', color: '#71717A', avatar: '👤' });
+  const [newTask, setNewTask] = useState({
+    title: '',
+    memberId: '',
+    days: [],
+    frequency: 'weekly',
+    points: 10
+  });
+
+  const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const colors = ['#71717A', '#52525B', '#3F3F46', '#27272A', '#18181B', '#A1A1AA', '#D4D4D8', '#E4E4E7'];
+  const avatars = ['👤', '👨', '👩', '👦', '👧', '👴', '👵', '🧑', '👶', '🧒'];
+
+  useEffect(() => {
+    const savedMembers = localStorage.getItem('familyMembers');
+    const savedTasks = localStorage.getItem('familyTasks');
+    const savedLog = localStorage.getItem('activityLog');
+    if (savedMembers) setMembers(JSON.parse(savedMembers));
+    if (savedTasks) setTasks(JSON.parse(savedTasks));
+    if (savedLog) setActivityLog(JSON.parse(savedLog));
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('familyMembers', JSON.stringify(members));
+  }, [members]);
+
+  useEffect(() => {
+    localStorage.setItem('familyTasks', JSON.stringify(tasks));
+  }, [tasks]);
+
+  useEffect(() => {
+    localStorage.setItem('activityLog', JSON.stringify(activityLog));
+  }, [activityLog]);
+
+  const addActivity = (type, memberName, taskTitle, points) => {
+    const activity = {
+      id: Date.now().toString(),
+      type,
+      memberName,
+      taskTitle,
+      points,
+      timestamp: new Date().toISOString()
+    };
+    setActivityLog([activity, ...activityLog].slice(0, 50));
+  };
+
+  const addMember = () => {
+    if (newMember.name.trim() && members.length < 10) {
+      const member = {
+        id: Date.now().toString(),
+        ...newMember,
+        points: 0
+      };
+      setMembers([...members, member]);
+      setNewMember({ name: '', color: colors[members.length % colors.length], avatar: '👤' });
+      setShowAddMember(false);
+    }
+  };
+
+  const updateMember = () => {
+    setMembers(members.map(m => m.id === editingMember.id ? editingMember : m));
+    setEditingMember(null);
+  };
+
+  const deleteMember = (id) => {
+    setMembers(members.filter(m => m.id !== id));
+    setTasks(tasks.filter(t => t.memberId !== id));
+  };
+
+  const addTask = () => {
+    if (newTask.title.trim() && newTask.memberId && newTask.days.length > 0) {
+      const task = {
+        id: Date.now().toString(),
+        ...newTask,
+        completed: {}
+      };
+      setTasks([...tasks, task]);
+      setNewTask({ title: '', memberId: '', days: [], frequency: 'weekly', points: 10 });
+      setShowAddTask(false);
+    }
+  };
+
+  const updateTask = () => {
+    setTasks(tasks.map(t => t.id === editingTask.id ? editingTask : t));
+    setEditingTask(null);
+  };
+
+  const deleteTask = (id) => {
+    setTasks(tasks.filter(t => t.id !== id));
+  };
+
+  const toggleTaskCompletion = (taskId, day) => {
+    const today = new Date().toISOString().split('T')[0];
+    const key = `${day}-${today}`;
+    
+    setTasks(tasks.map(task => {
+      if (task.id === taskId) {
+        const newCompleted = { ...task.completed };
+        const member = getMemberById(task.memberId);
+        
+        if (newCompleted[key]) {
+          delete newCompleted[key];
+          setMembers(members.map(m => 
+            m.id === task.memberId ? { ...m, points: m.points - task.points } : m
+          ));
+          addActivity('uncompleted', member.name, task.title, -task.points);
+        } else {
+          newCompleted[key] = true;
+          setMembers(members.map(m => 
+            m.id === task.memberId ? { ...m, points: m.points + task.points } : m
+          ));
+          addActivity('completed', member.name, task.title, task.points);
+        }
+        return { ...task, completed: newCompleted };
+      }
+      return task;
+    }));
+  };
+
+  const toggleDay = (day, setter, current) => {
+    if (current.includes(day)) {
+      setter({ ...newTask, days: current.filter(d => d !== day) });
+    } else {
+      setter({ ...newTask, days: [...current, day] });
+    }
+  };
+
+  const isTaskCompleted = (task, day) => {
+    const today = new Date().toISOString().split('T')[0];
+    const key = `${day}-${today}`;
+    return task.completed[key] || false;
+  };
+
+  const getMemberById = (id) => members.find(m => m.id === id);
+
+  const renderDashboard = () => {
+    const today = new Date();
+    const last7Days = Array.from({ length: 7 }, (_, i) => {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      return date.toISOString().split('T')[0];
+    }).reverse();
+
+    const totalTasksCompleted = activityLog.filter(a => a.type === 'completed').length;
+    const totalPoints = members.reduce((sum, m) => sum + m.points, 0);
+    const todayActivities = activityLog.filter(a => {
+      const activityDate = new Date(a.timestamp).toISOString().split('T')[0];
+      return activityDate === today.toISOString().split('T')[0];
+    });
+
+    const activitiesByDay = last7Days.map(date => {
+      const count = activityLog.filter(a => {
+        const activityDate = new Date(a.timestamp).toISOString().split('T')[0];
+        return activityDate === date && a.type === 'completed';
+      }).length;
+      return { date, count };
+    });
+
+    const maxCount = Math.max(...activitiesByDay.map(d => d.count), 1);
+
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-zinc-900 rounded-xl p-4 border border-zinc-800">
+            <div className="flex items-center gap-2 text-zinc-400 mb-2">
+              <Check className="w-4 h-4" />
+              <span className="text-xs font-medium">Hoje</span>
+            </div>
+            <p className="text-2xl font-bold text-zinc-200">{todayActivities.length}</p>
+          </div>
+          <div className="bg-zinc-900 rounded-xl p-4 border border-zinc-800">
+            <div className="flex items-center gap-2 text-zinc-400 mb-2">
+              <TrendingUp className="w-4 h-4" />
+              <span className="text-xs font-medium">Total</span>
+            </div>
+            <p className="text-2xl font-bold text-zinc-200">{totalTasksCompleted}</p>
+          </div>
+          <div className="bg-zinc-900 rounded-xl p-4 border border-zinc-800">
+            <div className="flex items-center gap-2 text-zinc-400 mb-2">
+              <Award className="w-4 h-4" />
+              <span className="text-xs font-medium">Pontos</span>
+            </div>
+            <p className="text-2xl font-bold text-zinc-200">{totalPoints}</p>
+          </div>
+        </div>
+
+        <div className="bg-zinc-900 rounded-xl p-6 border border-zinc-800">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-zinc-200">
+            <BarChart3 className="w-5 h-5" />
+            Atividade dos Últimos 7 Dias
+          </h3>
+          <div className="flex items-end justify-between gap-2 h-32">
+            {activitiesByDay.map((day, index) => {
+              const height = (day.count / maxCount) * 100;
+              const date = new Date(day.date);
+              const dayName = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'][date.getDay()];
+              
+              return (
+                <div key={index} className="flex-1 flex flex-col items-center gap-2">
+                  <div className="w-full bg-zinc-800 rounded-t-lg relative" style={{ height: '100%' }}>
+                    <div 
+                      className="w-full bg-zinc-600 rounded-t-lg absolute bottom-0 transition-all"
+                      style={{ height: `${height}%` }}
+                    />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs font-medium text-zinc-400">{dayName}</p>
+                    <p className="text-xs text-zinc-600">{day.count}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-zinc-200">
+            <Calendar className="w-5 h-5" />
+            Histórico de Atividades
+          </h3>
+          {activityLog.length === 0 ? (
+            <div className="text-center py-12 text-zinc-500 bg-zinc-900/30 rounded-xl border border-zinc-800">
+              <Calendar className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <p>Nenhuma atividade registrada ainda.</p>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {activityLog.map(activity => {
+                const date = new Date(activity.timestamp);
+                const timeStr = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                const dateStr = date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+                const isCompleted = activity.type === 'completed';
+                
+                return (
+                  <div key={activity.id} className="bg-zinc-900 rounded-lg p-3 border border-zinc-800 flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                      isCompleted ? 'bg-zinc-700 text-zinc-300' : 'bg-zinc-800 text-zinc-500'
+                    }`}>
+                      {isCompleted ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-zinc-200">
+                        <span className="font-medium">{activity.memberName}</span>
+                        {isCompleted ? ' completou ' : ' desmarcou '}
+                        <span className="font-medium">{activity.taskTitle}</span>
+                      </p>
+                      <p className="text-xs text-zinc-500">{dateStr} às {timeStr}</p>
+                    </div>
+                    <div className={`text-sm font-semibold px-2 py-1 rounded ${
+                      isCompleted ? 'text-zinc-300 bg-zinc-800' : 'text-zinc-500 bg-zinc-900'
+                    }`}>
+                      {activity.points > 0 ? '+' : ''}{activity.points}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderHome = () => {
+    const today = new Date().getDay();
+    const todayTasks = tasks.filter(t => t.days.includes(today));
+    
+    return (
+      <div className="space-y-6">
+        <div className="bg-gradient-to-br from-zinc-800 to-zinc-900 rounded-xl p-6 text-white border border-zinc-700">
+          <h2 className="text-2xl font-bold mb-2">Olá, Família! 👋</h2>
+          <p className="text-zinc-300">Hoje é {weekDays[today]}, {new Date().toLocaleDateString('pt-BR')}</p>
+        </div>
+
+        <div>
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-zinc-200">
+            <Calendar className="w-5 h-5" />
+            Tarefas de Hoje ({todayTasks.length})
+          </h3>
+          {todayTasks.length === 0 ? (
+            <div className="text-center py-12 text-zinc-500 bg-zinc-900/30 rounded-xl border border-zinc-800">
+              <Calendar className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <p>Nenhuma tarefa para hoje!</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {todayTasks.map(task => {
+                const member = getMemberById(task.memberId);
+                const completed = isTaskCompleted(task, today);
+                return (
+                  <div key={task.id} className="bg-zinc-900 rounded-xl p-4 border border-zinc-800 hover:border-zinc-700 transition-all">
+                    <div className="flex items-center gap-4">
+                      <button
+                        onClick={() => toggleTaskCompletion(task.id, today)}
+                        className={`w-12 h-12 rounded-lg flex items-center justify-center transition-all flex-shrink-0 ${
+                          completed 
+                            ? 'bg-zinc-700 text-zinc-300 border-2 border-zinc-600' 
+                            : 'bg-zinc-800 text-zinc-500 border-2 border-zinc-700 hover:border-zinc-600'
+                        }`}
+                      >
+                        <Check className={`w-6 h-6 ${completed ? 'opacity-100' : 'opacity-30'}`} />
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <p className={`font-medium text-lg ${completed ? 'line-through text-zinc-500' : 'text-zinc-200'}`}>
+                          {task.title}
+                        </p>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <span className="text-2xl">{member?.avatar}</span>
+                          <span className="text-sm text-zinc-400">{member?.name}</span>
+                          <span className="text-xs bg-zinc-800 text-zinc-400 px-2 py-1 rounded-md border border-zinc-700">
+                            {task.points} pts
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-zinc-200">
+            <Award className="w-5 h-5" />
+            Ranking da Família
+          </h3>
+          <div className="space-y-2">
+            {[...members].sort((a, b) => b.points - a.points).map((member, index) => (
+              <div key={member.id} className="bg-zinc-900 rounded-xl p-4 border border-zinc-800 flex items-center gap-4">
+                <div className="text-2xl font-bold text-zinc-700 w-8">{index + 1}º</div>
+                <div className="text-3xl">{member.avatar}</div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-zinc-200">{member.name}</p>
+                  <p className="text-sm text-zinc-500">{member.points} pontos</p>
+                </div>
+                <div className="w-16 h-16 rounded-xl flex items-center justify-center text-xl font-bold text-zinc-200 bg-zinc-800 border border-zinc-700">
+                  {member.points}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderMembers = () => (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-zinc-200">Membros da Família</h2>
+        {members.length < 10 && (
+          <button
+            onClick={() => setShowAddMember(true)}
+            className="bg-zinc-800 text-zinc-200 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-zinc-700 border border-zinc-700 transition-all"
+          >
+            <Plus className="w-5 h-5" />
+            Adicionar
+          </button>
+        )}
+      </div>
+
+      {showAddMember && (
+        <div className="bg-zinc-900 rounded-xl p-6 border-2 border-zinc-700">
+          <h3 className="font-semibold mb-4 text-zinc-200">Novo Membro</h3>
+          <input
+            type="text"
+            placeholder="Nome"
+            value={newMember.name}
+            onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 mb-3 text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600"
+          />
+          <div className="mb-3">
+            <label className="block text-sm font-medium mb-2 text-zinc-400">Avatar</label>
+            <div className="flex gap-2 flex-wrap">
+              {avatars.map(avatar => (
+                <button
+                  key={avatar}
+                  onClick={() => setNewMember({ ...newMember, avatar })}
+                  className={`text-3xl p-2 rounded-lg transition-all ${
+                    newMember.avatar === avatar 
+                      ? 'bg-zinc-700 ring-2 ring-zinc-600' 
+                      : 'bg-zinc-800 hover:bg-zinc-700'
+                  }`}
+                >
+                  {avatar}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2 text-zinc-400">Cor</label>
+            <div className="flex gap-2 flex-wrap">
+              {colors.map(color => (
+                <button
+                  key={color}
+                  onClick={() => setNewMember({ ...newMember, color })}
+                  className={`w-10 h-10 rounded-lg transition-all ${
+                    newMember.color === color ? 'ring-2 ring-zinc-500 ring-offset-2 ring-offset-zinc-900' : ''
+                  }`}
+                  style={{ backgroundColor: color }}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button 
+              onClick={addMember} 
+              className="flex-1 bg-zinc-800 text-zinc-200 py-2 rounded-lg hover:bg-zinc-700 border border-zinc-700 transition-all"
+            >
+              Salvar
+            </button>
+            <button 
+              onClick={() => setShowAddMember(false)} 
+              className="px-4 bg-zinc-800 text-zinc-400 rounded-lg hover:bg-zinc-700 border border-zinc-700 transition-all"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {editingMember && (
+        <div className="bg-zinc-900 rounded-xl p-6 border-2 border-zinc-700">
+          <h3 className="font-semibold mb-4 text-zinc-200">Editar Membro</h3>
+          <input
+            type="text"
+            value={editingMember.name}
+            onChange={(e) => setEditingMember({ ...editingMember, name: e.target.value })}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 mb-3 text-zinc-200 focus:outline-none focus:border-zinc-600"
+          />
+          <div className="mb-3">
+            <label className="block text-sm font-medium mb-2 text-zinc-400">Avatar</label>
+            <div className="flex gap-2 flex-wrap">
+              {avatars.map(avatar => (
+                <button
+                  key={avatar}
+                  onClick={() => setEditingMember({ ...editingMember, avatar })}
+                  className={`text-3xl p-2 rounded-lg transition-all ${
+                    editingMember.avatar === avatar 
+                      ? 'bg-zinc-700 ring-2 ring-zinc-600' 
+                      : 'bg-zinc-800 hover:bg-zinc-700'
+                  }`}
+                >
+                  {avatar}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2 text-zinc-400">Cor</label>
+            <div className="flex gap-2 flex-wrap">
+              {colors.map(color => (
+                <button
+                  key={color}
+                  onClick={() => setEditingMember({ ...editingMember, color })}
+                  className={`w-10 h-10 rounded-lg transition-all ${
+                    editingMember.color === color ? 'ring-2 ring-zinc-500 ring-offset-2 ring-offset-zinc-900' : ''
+                  }`}
+                  style={{ backgroundColor: color }}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button 
+              onClick={updateMember} 
+              className="flex-1 bg-zinc-800 text-zinc-200 py-2 rounded-lg hover:bg-zinc-700 border border-zinc-700 transition-all"
+            >
+              Atualizar
+            </button>
+            <button 
+              onClick={() => setEditingMember(null)} 
+              className="px-4 bg-zinc-800 text-zinc-400 rounded-lg hover:bg-zinc-700 border border-zinc-700 transition-all"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="grid gap-3">
+        {members.map(member => (
+          <div key={member.id} className="bg-zinc-900 rounded-xl p-4 border border-zinc-800 flex items-center gap-3">
+            <div className="text-4xl">{member.avatar}</div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-lg text-zinc-200">{member.name}</p>
+              <p className="text-sm text-zinc-500">{member.points} pontos acumulados</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setEditingMember(member)}
+                className="p-2 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded-lg transition-all"
+              >
+                <Edit2 className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => deleteMember(member.id)}
+                className="p-2 text-zinc-400 hover:text-red-400 hover:bg-zinc-800 rounded-lg transition-all"
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {members.length === 0 && (
+        <div className="text-center py-12 text-zinc-500 bg-zinc-900/30 rounded-xl border border-zinc-800">
+          <Users className="w-16 h-16 mx-auto mb-3 opacity-50" />
+          <p>Nenhum membro cadastrado ainda.</p>
+          <p className="text-sm">Clique em "Adicionar" para começar!</p>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderTasks = () => (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-zinc-200">Tarefas</h2>
+        {members.length > 0 && (
+          <button
+            onClick={() => setShowAddTask(true)}
+            className="bg-zinc-800 text-zinc-200 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-zinc-700 border border-zinc-700 transition-all"
+          >
+            <Plus className="w-5 h-5" />
+            Adicionar
+          </button>
+        )}
+      </div>
+
+      {(showAddTask || editingTask) && (
+        <div className="bg-zinc-900 rounded-xl p-6 border-2 border-zinc-700">
+          <h3 className="font-semibold mb-4 text-zinc-200">{editingTask ? 'Editar Tarefa' : 'Nova Tarefa'}</h3>
+          <input
+            type="text"
+            placeholder="Nome da tarefa"
+            value={editingTask ? editingTask.title : newTask.title}
+            onChange={(e) => editingTask 
+              ? setEditingTask({ ...editingTask, title: e.target.value })
+              : setNewTask({ ...newTask, title: e.target.value })
+            }
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 mb-3 text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600"
+          />
+          <select
+            value={editingTask ? editingTask.memberId : newTask.memberId}
+            onChange={(e) => editingTask
+              ? setEditingTask({ ...editingTask, memberId: e.target.value })
+              : setNewTask({ ...newTask, memberId: e.target.value })
+            }
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 mb-3 text-zinc-200 focus:outline-none focus:border-zinc-600"
+          >
+            <option value="">Selecione um membro</option>
+            {members.map(member => (
+              <option key={member.id} value={member.id}>
+                {member.avatar} {member.name}
+              </option>
+            ))}
+          </select>
+          <div className="mb-3">
+            <label className="block text-sm font-medium mb-2 text-zinc-400">Dias da semana</label>
+            <div className="flex gap-2 flex-wrap">
+              {weekDays.map((day, index) => {
+                const current = editingTask ? editingTask.days : newTask.days;
+                const isSelected = current.includes(index);
+                return (
+                  <button
+                    key={index}
+                    onClick={() => {
+                      if (editingTask) {
+                        const newDays = isSelected 
+                          ? current.filter(d => d !== index)
+                          : [...current, index];
+                        setEditingTask({ ...editingTask, days: newDays });
+                      } else {
+                        toggleDay(index, setNewTask, current);
+                      }
+                    }}
+                    className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                      isSelected 
+                        ? 'bg-zinc-700 text-zinc-200 border-2 border-zinc-600' 
+                        : 'bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700'
+                    }`}
+                  >
+                    {day}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="mb-4">
+            <label className="block text-sm font-medium mb-2 text-zinc-400">Pontos</label>
+            <input
+              type="number"
+              min="1"
+              value={editingTask ? editingTask.points : newTask.points}
+              onChange={(e) => editingTask
+                ? setEditingTask({ ...editingTask, points: parseInt(e.target.value) || 10 })
+                : setNewTask({ ...newTask, points: parseInt(e.target.value) || 10 })
+              }
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-zinc-200 focus:outline-none focus:border-zinc-600"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={editingTask ? updateTask : addTask}
+              className="flex-1 bg-zinc-800 text-zinc-200 py-2 rounded-lg hover:bg-zinc-700 border border-zinc-700 transition-all"
+            >
+              {editingTask ? 'Atualizar' : 'Salvar'}
+            </button>
+            <button
+              onClick={() => {
+                setShowAddTask(false);
+                setEditingTask(null);
+              }}
+              className="px-4 bg-zinc-800 text-zinc-400 rounded-lg hover:bg-zinc-700 border border-zinc-700 transition-all"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {tasks.map(task => {
+          const member = getMemberById(task.memberId);
+          return (
+            <div key={task.id} className="bg-zinc-900 rounded-xl p-4 border border-zinc-800">
+              <div className="flex items-start gap-3 mb-3">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-lg text-zinc-200">{task.title}</p>
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <span className="text-2xl">{member?.avatar}</span>
+                    <span className="text-sm text-zinc-400">{member?.name}</span>
+                    <span className="text-xs bg-zinc-800 text-zinc-400 px-2 py-1 rounded-md border border-zinc-700">
+                      {task.points} pts
+                    </span>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setEditingTask(task)}
+                    className="p-2 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded-lg transition-all"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => deleteTask(task.id)}
+                    className="p-2 text-zinc-400 hover:text-red-400 hover:bg-zinc-800 rounded-lg transition-all"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                {task.days.sort((a, b) => a - b).map(day => (
+                  <span key={day} className="px-3 py-1 bg-zinc-800 text-zinc-400 text-xs rounded-md border border-zinc-700">
+                    {weekDays[day]}
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {tasks.length === 0 && (
+        <div className="text-center py-12 text-zinc-500 bg-zinc-900/30 rounded-xl border border-zinc-800">
+          <Calendar className="w-16 h-16 mx-auto mb-3 opacity-50" />
+          <p>Nenhuma tarefa cadastrada ainda.</p>
+          <p className="text-sm">Adicione membros e depois crie as tarefas!</p>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-black">
+      <div className="max-w-2xl mx-auto p-4 pb-32">
+        <div className="text-center mb-6 pt-4">
+          <h1 className="text-3xl font-bold text-zinc-100 mb-1">FamíliaTarefas</h1>
+          <p className="text-zinc-500">Organize as tarefas da sua família</p>
+        </div>
+
+        {currentView === 'home' && renderHome()}
+        {currentView === 'members' && renderMembers()}
+        {currentView === 'tasks' && renderTasks()}
+        {currentView === 'dashboard' && renderDashboard()}
+
+        <div className="mt-12 pt-6 border-t border-zinc-800 text-center">
+          <p className="text-zinc-600 text-sm mb-2">Desenvolvido por</p>
+          <a 
+            href="https://www.linkedin.com/in/brunocdpereira/" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 text-zinc-400 hover:text-zinc-200 transition-all"
+          >
+            <Linkedin className="w-5 h-5" />
+            <span className="font-semibold">Bruno Pereira</span>
+          </a>
+        </div>
+      </div>
+
+      <div className="fixed bottom-0 left-0 right-0 bg-zinc-950 border-t border-zinc-800">
+        <div className="max-w-2xl mx-auto flex justify-around py-3">
+          <button
+            onClick={() => setCurrentView('home')}
+            className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-all ${
+              currentView === 'home' 
+                ? 'text-zinc-200 bg-zinc-800' 
+                : 'text-zinc-600 hover:text-zinc-400'
+            }`}
+          >
+            <Home className="w-6 h-6" />
+            <span className="text-xs font-medium">Início</span>
+          </button>
+          <button
+            onClick={() => setCurrentView('members')}
+            className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-all ${
+              currentView === 'members' 
+                ? 'text-zinc-200 bg-zinc-800' 
+                : 'text-zinc-600 hover:text-zinc-400'
+            }`}
+          >
+            <Users className="w-6 h-6" />
+            <span className="text-xs font-medium">Membros</span>
+          </button>
+          <button
+            onClick={() => setCurrentView('tasks')}
+            className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-all ${
+              currentView === 'tasks' 
+                ? 'text-zinc-200 bg-zinc-800' 
+                : 'text-zinc-600 hover:text-zinc-400'
+            }`}
+          >
+            <Calendar className="w-6 h-6" />
+            <span className="text-xs font-medium">Tarefas</span>
+          </button>
+          <button
+            onClick={() => setCurrentView('dashboard')}
+            className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-all ${
+              currentView === 'dashboard' 
+                ? 'text-zinc-200 bg-zinc-800' 
+                : 'text-zinc-600 hover:text-zinc-400'
+            }`}
+          >
+            <BarChart3 className="w-6 h-6" />
+            <span className="text-xs font-medium">Dashboard</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default FamiliaTarefasApp;
